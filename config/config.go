@@ -16,7 +16,7 @@ type DBConfig struct {
 	SSLMode  string
 }
 
-func getEnv(key, fallback string) string {
+func GetEnv(key, fallback string) string {
 	if val:= os.Getenv(key); val!= ""{
 		return val
 	}
@@ -28,12 +28,12 @@ func LoadDBConfig() *DBConfig{
 	}
 
 	return &DBConfig{
-		Host: getEnv("DB_HOST","localhost"),
-		Port: getEnv("DB_PORT","3306"),
-		User: getEnv("DB_USER","exampleuser"),
-		Password: getEnv("DB_PASSWORD","examplepassword"),
-		Name: getEnv("DB_NAME","coi"),
-		SSLMode: getEnv("DB_SSLMODE","disable"),
+		Host: GetEnv("DB_HOST","localhost"),
+		Port: GetEnv("DB_PORT","3306"),
+		User: GetEnv("DB_USER","exampleuser"),
+		Password: GetEnv("DB_PASSWORD","examplepassword"),
+		Name: GetEnv("DB_NAME","coi"),
+		SSLMode: GetEnv("DB_SSLMODE","disable"),
 	}
 }
 
