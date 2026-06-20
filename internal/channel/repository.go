@@ -12,6 +12,7 @@ import (
 type ChannelRepository interface {
 	Create(ctx context.Context, channel *model.Channel) error
 	FindByID(ctx context.Context, id int) (*model.Channel, error)
+	FindByUserID(ctx context.Context, userID int) (*model.Channel, error)
 	FindByName(ctx context.Context, name string) ([]model.Channel, error)
 	ExistsByUserID(ctx context.Context, userID int) (bool, error)
 }
@@ -38,6 +39,17 @@ func (r *channelRepository) FindByID(ctx context.Context, id int) (*model.Channe
 	}
 	return &channel, err
 }
+
+func (r *channelRepository) FindByUserID(ctx context.Context, userID int) (*model.Channel, error) {
+	db := txmanager.GetTx(ctx, r.db)
+	var channel model.Channel
+	err := db.WithContext(ctx).Where("user_id = ?", userID).First(&channel).Error
+	if err != nil {
+		return nil, err
+	}
+	return &channel, nil
+}
+
 func (r *channelRepository) FindByName(ctx context.Context, name string) ([]model.Channel, error) {
 	db := txmanager.GetTx(ctx, r.db)
 	var channels []model.Channel
