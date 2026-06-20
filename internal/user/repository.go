@@ -1,7 +1,10 @@
 package user
 
 import (
+	"context"
+
 	"coi/internal/model"
+	"coi/pkg/txmanager"
 
 	"gorm.io/gorm"
 )
@@ -19,6 +22,7 @@ type UserRepository interface {
 	FindByEmail(email string) (*model.User, error)
 	FindByUsername(username string) (*model.User, error)
 	FindByID(id int) (*model.User, error)
+	UpdateRole(ctx context.Context, userID int, role model.UserRole) error
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -72,4 +76,18 @@ func (r *userRepository) FindByID(id int) (*model.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *userRepository) UpdateRole(ctx context.Context, userID int, role model.UserRole) error {
+	db := txmanager.GetTx(ctx, r.db)
+	result := db.WithContext(ctx).Model(&model.User{}).
+		Where("id = ?", userID).
+		Update("role", role)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

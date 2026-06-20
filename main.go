@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"coi/config"
+	channelRoutes "coi/internal/channel"
 	"coi/internal/model"
 	userRoutes "coi/internal/user"
 
@@ -27,7 +28,7 @@ func main() {
 	// ─── 3. Auto migrate ─────────────────────────────────────────────────────
 	// AutoMigrate tự động tạo / cập nhật bảng trong DB dựa theo struct.
 	// Chỉ thêm cột mới và index mới — KHÔNG xóa cột cũ (an toàn).
-	if err := db.AutoMigrate(&model.User{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Channel{}); err != nil {
 		log.Fatalf("AutoMigrate thất bại: %v", err)
 	}
 	log.Println("AutoMigrate thành công")
@@ -44,6 +45,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		userRoutes.RegisterRoutes(v1, db)
+		channelRoutes.RegisterRoutes(v1, db)
 	}
 
 	// ─── 6. Khởi động server ─────────────────────────────────────────────────

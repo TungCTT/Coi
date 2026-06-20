@@ -5,6 +5,7 @@ type CommentStatus string
 type ReactionType string
 type NotificationType string
 type NotificationEntityType string
+type UserRole string
 const (
 	Public VideoVisibility = "public"
 	Private VideoVisibility = "private"
@@ -26,4 +27,9 @@ const(
 const(
 	VideoEntity NotificationEntityType = "video"
 	CommentEntity NotificationEntityType = "comment"
+)
+const (
+	RoleAdmin UserRole = "admin"
+	RoleCreator UserRole = "creator"
+	RoleUser UserRole = "user"
 )

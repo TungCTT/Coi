@@ -12,7 +12,7 @@ type User struct {
 	Email           string           `json:"email" gorm:"uniqueIndex;not null"`
 	Username        string           `json:"username" gorm:"uniqueIndex;not null"`
 	Password        string           `json:"password"`
-	Role            string           `json:"role" gorm:"type:varchar(30);not null;default:'user'"`
+	Role            UserRole         `json:"role" gorm:"type:varchar(30);not null;default:'user'"`
 	Status          string           `json:"status" gorm:"type:varchar(30);not null;default:'active'"`
 	AvatarURL       string           `json:"avatar_url" gorm:"size:500"`
 	Bio             string           `json:"bio"`
@@ -55,7 +55,7 @@ type UserResponse struct {
 	Name      string     `json:"name"`
 	Email     string     `json:"email"`
 	Username  string     `json:"username"`
-	Role      string     `json:"role"`
+	Role      UserRole     `json:"role"`
 	Status    string     `json:"status"`
 	AvatarURL string     `json:"avatar_url"`
 	Bio       string     `json:"bio"`
