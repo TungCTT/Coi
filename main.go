@@ -8,6 +8,8 @@ import (
 	channelRoutes "coi/internal/channel"
 	"coi/internal/model"
 	userRoutes "coi/internal/user"
+	videoRoutes "coi/internal/video"
+	"coi/pkg/storage"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
@@ -16,36 +18,39 @@ import (
 
 func main() {
 	dbCfg := config.LoadDBConfig()
+	s3Cfg, err := config.LoadS3Config()
+	if err != nil {
+		log.Fatalf("Khong the load R2 config: %v", err)
+	}
 
-	//Kết nối database qua GORM
 	db, err := gorm.Open(mysql.Open(dbCfg.MySQLDSN()), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Không thể kết nối DB: %v", err)
+		log.Fatalf("Khong the ket noi DB: %v", err)
 	}
-	log.Println("Kết nối database thành công")
+	log.Println("Ket noi database thanh cong")
 
-	//Auto migrate
-	//hình như nên dùng go-migrate
-	if err := db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Category{}); err != nil {
-		log.Fatalf("AutoMigrate thất bại: %v", err)
+	r2Client, err := storage.NewR2Client(s3Cfg.R2Endpoint, s3Cfg.R2AccessKeyID, s3Cfg.R2SecretAccessKey)
+	if err != nil {
+		log.Fatalf("Khong the ket noi R2: %v", err)
 	}
-	log.Println("AutoMigrate thành công")
 
-	//Khởi tạo Gin engine
-	//tạo engine với 2 middleware mặc định: Logger và Recovery.
+	if err := db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Category{}, &model.Video{}); err != nil {
+		log.Fatalf("AutoMigrate that bai: %v", err)
+	}
+	log.Println("AutoMigrate thanh cong")
 
 	r := gin.Default()
 
-	//Đăng ký routes
 	v1 := r.Group("/api/v1")
 	{
 		userRoutes.RegisterRoutes(v1, db)
 		channelRoutes.RegisterRoutes(v1, db)
 		categoryRoutes.RegisterRoutes(v1, db)
+		videoRoutes.RegisterRoutes(v1, db, r2Client, s3Cfg.R2BucketName, s3Cfg.R2PublicBaseURL)
 	}
 
-	log.Println("Server đang chạy tại http://localhost:8080")
+	log.Println("Server dang chay tai http://localhost:8080")
 	if err := r.Run(":8080"); err != nil {
-		log.Fatalf("Không thể khởi động server: %v", err)
+		log.Fatalf("Khong the khoi dong server: %v", err)
 	}
 }

@@ -1,35 +1,44 @@
 package model
 
 type VideoVisibility string
+type VideoStatus string
 type CommentStatus string
 type ReactionType string
 type NotificationType string
 type NotificationEntityType string
 type UserRole string
+
 const (
-	Public VideoVisibility = "public"
+	Public  VideoVisibility = "public"
 	Private VideoVisibility = "private"
 )
 const (
+	VideoStatusUploading  VideoStatus = "uploading"
+	VideoStatusUploaded   VideoStatus = "uploaded"
+	VideoStatusProcessing VideoStatus = "processing"
+	VideoStatusReady      VideoStatus = "ready"
+	VideoStatusFailed     VideoStatus = "failed"
+)
+const (
 	Visible CommentStatus = "visible"
-	Hidden CommentStatus = "hidden"
+	Hidden  CommentStatus = "hidden"
 	Deleted CommentStatus = "deleted"
 )
 const (
-	Like ReactionType = "like"
+	Like    ReactionType = "like"
 	Dislike ReactionType = "dislike"
 )
-const(
-	NewVideo NotificationType = "new_video"
+const (
+	NewVideo     NotificationType = "new_video"
 	CommentReply NotificationType = "comment_reply"
-	System NotificationType = "system"
+	System       NotificationType = "system"
 )
-const(
-	VideoEntity NotificationEntityType = "video"
+const (
+	VideoEntity   NotificationEntityType = "video"
 	CommentEntity NotificationEntityType = "comment"
 )
 const (
-	RoleAdmin UserRole = "admin"
+	RoleAdmin   UserRole = "admin"
 	RoleCreator UserRole = "creator"
-	RoleUser UserRole = "user"
+	RoleUser    UserRole = "user"
 )
