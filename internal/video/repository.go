@@ -12,9 +12,12 @@ import (
 type VideoRepository interface {
 	Create(ctx context.Context, video *model.Video) error
 	GetByID(ctx context.Context, id int) (*model.Video, error)
+	GetPublicReadyByID(ctx context.Context, id int) (*model.Video, error)
 	GetByStorageKey(ctx context.Context, key string) (*model.Video, error)
 	GetByChannelID(ctx context.Context, channelID int) ([]model.Video, error)
 	GetByName(ctx context.Context, name string) ([]model.Video, error)
+	ListPublicReady(ctx context.Context, query string, limit int, offset int) ([]model.Video, error)
+	ListPublicReadyByChannelID(ctx context.Context, channelID int, limit int, offset int) ([]model.Video, error)
 	MarkUploaded(ctx context.Context, id int, info ObjectInfo) error
 	UpdateStatus(ctx context.Context, id int, status model.VideoStatus) error
 	FindExpiredUploading(ctx context.Context, now time.Time) ([]model.Video, error)
@@ -38,6 +41,18 @@ func (r *videoRepository) GetByID(ctx context.Context, id int) (*model.Video, er
 	db := txmanager.GetTx(ctx, r.db)
 	var video model.Video
 	err := db.WithContext(ctx).First(&video, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &video, nil
+}
+
+func (r *videoRepository) GetPublicReadyByID(ctx context.Context, id int) (*model.Video, error) {
+	db := txmanager.GetTx(ctx, r.db)
+	var video model.Video
+	err := db.WithContext(ctx).
+		Where("id = ? AND status = ? AND visibility = ?", id, model.VideoStatusReady, model.Public).
+		First(&video).Error
 	if err != nil {
 		return nil, err
 	}
@@ -74,14 +89,42 @@ func (r *videoRepository) GetByName(ctx context.Context, name string) ([]model.V
 	return videos, nil
 }
 
+func (r *videoRepository) ListPublicReady(ctx context.Context, query string, limit int, offset int) ([]model.Video, error) {
+	db := txmanager.GetTx(ctx, r.db)
+	var videos []model.Video
+	q := db.WithContext(ctx).
+		Where("status = ? AND visibility = ?", model.VideoStatusReady, model.Public).
+		Order("created_at DESC")
+	if query != "" {
+		q = q.Where("title LIKE ? OR description LIKE ?", "%"+query+"%", "%"+query+"%")
+	}
+	err := q.
+		Limit(limit).
+		Offset(offset).
+		Find(&videos).Error
+	return videos, err
+}
+
+func (r *videoRepository) ListPublicReadyByChannelID(ctx context.Context, channelID int, limit int, offset int) ([]model.Video, error) {
+	db := txmanager.GetTx(ctx, r.db)
+	var videos []model.Video
+	err := db.WithContext(ctx).
+		Where("channel_id = ? AND status = ? AND visibility = ?", channelID, model.VideoStatusReady, model.Public).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&videos).Error
+	return videos, err
+}
+
 func (r *videoRepository) MarkUploaded(ctx context.Context, id int, info ObjectInfo) error {
 	db := txmanager.GetTx(ctx, r.db)
 	now := time.Now()
 	return db.WithContext(ctx).Model(&model.Video{}).Where("id = ?", id).Updates(map[string]any{
-		"status":       model.VideoStatusUploaded,
+		"status":       model.VideoStatusReady,
 		"file_size":    info.Size,
 		"content_type": info.ContentType,
-		"etag":         info.ETag,
+		"e_tag":        info.ETag,
 		"uploaded_at":  &now,
 	}).Error
 }

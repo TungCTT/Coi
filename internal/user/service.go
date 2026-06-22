@@ -1,12 +1,25 @@
 package user
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
 	"coi/internal/model"
 	jwtpkg "coi/pkg/jwt"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+)
+
+const (
+	userMediaUploadTTL = 30 * time.Minute
+	maxAvatarSize      = 2 << 20
 )
 
 type AuthService interface {
@@ -14,31 +27,35 @@ type AuthService interface {
 	Login(req *model.LoginRequest) (*model.AuthResponse, error)
 	RefreshToken(refreshToken string) (*jwtpkg.TokenPair, error)
 	GetUserByID(id int) (*model.UserResponse, error)
+	CreateMediaUploadSession(ctx context.Context, userID int, req *model.CreateUserMediaUploadRequest) (*model.UserMediaUploadResponse, error)
+	ConfirmMediaUpload(ctx context.Context, userID int, req *model.ConfirmUserMediaUploadRequest) (*model.UserResponse, error)
 }
-
 
 type authService struct {
-	repo UserRepository
+	repo    UserRepository
+	storage UserMediaStorage
 }
 
-func NewAuthService(repo UserRepository) AuthService {
-	return &authService{repo: repo}
+func NewAuthService(repo UserRepository, storage ...UserMediaStorage) AuthService {
+	var mediaStorage UserMediaStorage
+	if len(storage) > 0 {
+		mediaStorage = storage[0]
+	}
+	return &authService{repo: repo, storage: mediaStorage}
 }
 
-// Register tạo tài khoản mới
 func (s *authService) Register(req *model.CreateUserRequest) (*model.AuthResponse, error) {
 	_, err := s.repo.FindByEmail(req.Email)
 	if err == nil {
-		return nil, errors.New("email đã được sử dụng")
+		return nil, errors.New("email da duoc su dung")
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		// Lỗi DB thực sự (kết nối, v.v.) — không phải "không tìm thấy"
 		return nil, err
 	}
 
 	_, err = s.repo.FindByUsername(req.Username)
 	if err == nil {
-		return nil, errors.New("username đã được sử dụng")
+		return nil, errors.New("username da duoc su dung")
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -53,7 +70,7 @@ func (s *authService) Register(req *model.CreateUserRequest) (*model.AuthRespons
 		Name:     req.Name,
 		Email:    req.Email,
 		Username: req.Username,
-		Password: string(hashedPassword), // Chỉ lưu hash, không lưu plain-text
+		Password: string(hashedPassword),
 	}
 	if err := s.repo.Create(user); err != nil {
 		return nil, err
@@ -66,25 +83,23 @@ func (s *authService) Login(req *model.LoginRequest) (*model.AuthResponse, error
 	user, err := s.repo.FindByEmail(req.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("email hoặc mật khẩu không đúng")
+			return nil, errors.New("email hoac mat khau khong dung")
 		}
 		return nil, err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, errors.New("email hoặc mật khẩu không đúng")
+		return nil, errors.New("email hoac mat khau khong dung")
 	}
 
 	return buildAuthResponse(user)
 }
 
-// RefreshToken nhận refresh token, validate và cấp access token mới.
 func (s *authService) RefreshToken(refreshToken string) (*jwtpkg.TokenPair, error) {
 	claims, err := jwtpkg.ValidateRefreshToken(refreshToken)
 	if err != nil {
-		return nil, errors.New("refresh token không hợp lệ hoặc đã hết hạn")
+		return nil, errors.New("refresh token khong hop le hoac da het han")
 	}
-
 
 	tokenPair, err := jwtpkg.GenerateTokenPair(claims.UserID, claims.Username)
 	if err != nil {
@@ -93,12 +108,11 @@ func (s *authService) RefreshToken(refreshToken string) (*jwtpkg.TokenPair, erro
 	return tokenPair, nil
 }
 
-// GetUserByID lấy thông tin user theo ID (dùng cho route /me).
 func (s *authService) GetUserByID(id int) (*model.UserResponse, error) {
 	user, err := s.repo.FindByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("không tìm thấy user")
+			return nil, errors.New("khong tim thay user")
 		}
 		return nil, err
 	}
@@ -106,9 +120,73 @@ func (s *authService) GetUserByID(id int) (*model.UserResponse, error) {
 	return &resp, nil
 }
 
+func (s *authService) CreateMediaUploadSession(ctx context.Context, userID int, req *model.CreateUserMediaUploadRequest) (*model.UserMediaUploadResponse, error) {
+	if s.storage == nil {
+		return nil, errors.New("media storage is not configured")
+	}
+	if err := validateUserAvatarRequest(req.FileSize, req.ContentType); err != nil {
+		return nil, err
+	}
+	if _, err := s.repo.FindByID(userID); err != nil {
+		return nil, err
+	}
 
-// buildAuthResponse là helper nội bộ tạo AuthResponse từ User entity.
-// Dùng chung cho cả Register và Login để tránh lặp code.
+	key := buildUserAvatarKey(userID, req.OriginalFileName)
+	uploadURL, err := s.storage.CreatePresignedUploadURL(ctx, key, req.ContentType, userMediaUploadTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.UserMediaUploadResponse{
+		UploadURL:  uploadURL,
+		StorageKey: key,
+		PublicURL:  s.storage.PublicURL(key),
+	}, nil
+}
+
+func (s *authService) ConfirmMediaUpload(ctx context.Context, userID int, req *model.ConfirmUserMediaUploadRequest) (*model.UserResponse, error) {
+	if s.storage == nil {
+		return nil, errors.New("media storage is not configured")
+	}
+
+	expectedPrefix := fmt.Sprintf("users/%d/avatar/", userID)
+	if !strings.HasPrefix(req.StorageKey, expectedPrefix) {
+		return nil, errors.New("invalid storage_key for this user")
+	}
+
+	info, err := s.storage.GetObjectInfo(ctx, req.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateUserAvatarRequest(info.Size, info.ContentType); err != nil {
+		_ = s.storage.Delete(ctx, req.StorageKey)
+		return nil, err
+	}
+
+	user, err := s.repo.FindByID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	publicURL := s.storage.PublicURL(req.StorageKey)
+	oldKey := user.AvatarStorageKey
+	err = s.repo.UpdateAvatar(ctx, userID, publicURL, req.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if oldKey != "" && oldKey != req.StorageKey {
+		_ = s.storage.Delete(ctx, oldKey)
+	}
+
+	updated, err := s.repo.FindByID(userID)
+	if err != nil {
+		return nil, err
+	}
+	resp := toUserResponse(updated)
+	return &resp, nil
+}
+
 func buildAuthResponse(user *model.User) (*model.AuthResponse, error) {
 	tokenPair, err := jwtpkg.GenerateTokenPair(user.ID, user.Username)
 	if err != nil {
@@ -120,8 +198,6 @@ func buildAuthResponse(user *model.User) (*model.AuthResponse, error) {
 	}, nil
 }
 
-// toUserResponse chuyển đổi User entity (có password hash) thành UserResponse (không có password).
-// Đây là bước quan trọng để đảm bảo không bao giờ lộ password ra ngoài.
 func toUserResponse(u *model.User) model.UserResponse {
 	return model.UserResponse{
 		ID:        u.ID,
@@ -134,4 +210,37 @@ func toUserResponse(u *model.User) model.UserResponse {
 		Bio:       u.Bio,
 		CreatedAt: u.CreatedAt,
 	}
+}
+
+func validateUserAvatarRequest(fileSize int64, contentType string) error {
+	if fileSize <= 0 {
+		return errors.New("file_size must be greater than 0")
+	}
+	if fileSize > maxAvatarSize {
+		return fmt.Errorf("avatar file_size exceeds %d bytes", maxAvatarSize)
+	}
+
+	switch strings.ToLower(contentType) {
+	case "image/jpeg", "image/png", "image/webp":
+		return nil
+	default:
+		return errors.New("content_type must be image/jpeg, image/png, or image/webp")
+	}
+}
+
+func buildUserAvatarKey(userID int, originalFileName string) string {
+	ext := strings.ToLower(filepath.Ext(originalFileName))
+	return fmt.Sprintf("users/%d/avatar/%s%s", userID, uuid.NewString(), sanitizeMediaExtension(ext))
+}
+
+func sanitizeMediaExtension(ext string) string {
+	re := regexp.MustCompile(`[^a-z0-9.]+`)
+	ext = re.ReplaceAllString(strings.ToLower(ext), "")
+	if ext == "" || ext == "." {
+		return ".image"
+	}
+	if !strings.HasPrefix(ext, ".") {
+		return "." + ext
+	}
+	return ext
 }

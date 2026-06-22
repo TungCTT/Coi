@@ -20,6 +20,10 @@ func RegisterRoutes(rg *gin.RouterGroup, db *gorm.DB, r2Client *s3.Client, bucke
 
 	videos := rg.Group("/videos")
 	{
+		videos.GET("", handler.ListVideos)
+		videos.GET("/:id", handler.GetVideoByID)
+		videos.GET("/:id/stream", handler.StreamVideo)
+
 		protected := videos.Group("", middleware.AuthMiddleware())
 		{
 			protected.POST("/upload-sessions", handler.CreateUploadSession)
@@ -27,6 +31,8 @@ func RegisterRoutes(rg *gin.RouterGroup, db *gorm.DB, r2Client *s3.Client, bucke
 			protected.DELETE("/:id", handler.DeleteVideo)
 		}
 	}
+
+	rg.GET("/channels/:id/videos", handler.ListVideosByChannel)
 
 	internal := rg.Group("/internal/videos")
 	{

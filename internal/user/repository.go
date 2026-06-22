@@ -23,6 +23,7 @@ type UserRepository interface {
 	FindByUsername(username string) (*model.User, error)
 	FindByID(id int) (*model.User, error)
 	UpdateRole(ctx context.Context, userID int, role model.UserRole) error
+	UpdateAvatar(ctx context.Context, userID int, avatarURL string, storageKey string) error
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -76,6 +77,23 @@ func (r *userRepository) FindByID(id int) (*model.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *userRepository) UpdateAvatar(ctx context.Context, userID int, avatarURL string, storageKey string) error {
+	db := txmanager.GetTx(ctx, r.db)
+	result := db.WithContext(ctx).Model(&model.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]any{
+			"avatar_url":         avatarURL,
+			"avatar_storage_key": storageKey,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *userRepository) UpdateRole(ctx context.Context, userID int, role model.UserRole) error {

@@ -13,15 +13,17 @@ import (
 )
 
 type ObjectInfo struct {
-	Key         string
-	Size        int64
-	ContentType string
-	ETag        string
+	Key          string
+	Size         int64
+	ContentType  string
+	ETag         string
+	ContentRange string
 }
 
 type VideoStorage interface {
 	CreatePresignedUploadURL(ctx context.Context, key string, contentType string, expires time.Duration) (string, error)
 	GetObjectInfo(ctx context.Context, key string) (*ObjectInfo, error)
+	Open(ctx context.Context, key string, byteRange string) (*s3.GetObjectOutput, error)
 	Exists(ctx context.Context, key string) (bool, error)
 	Delete(ctx context.Context, key string) error
 	PublicURL(key string) string
@@ -73,6 +75,17 @@ func (s *r2VideoStorage) GetObjectInfo(ctx context.Context, key string) (*Object
 		ContentType: aws.ToString(out.ContentType),
 		ETag:        strings.Trim(aws.ToString(out.ETag), "\""),
 	}, nil
+}
+
+func (s *r2VideoStorage) Open(ctx context.Context, key string, byteRange string) (*s3.GetObjectOutput, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(key),
+	}
+	if byteRange != "" {
+		input.Range = aws.String(byteRange)
+	}
+	return s.client.GetObject(ctx, input)
 }
 
 func (s *r2VideoStorage) Exists(ctx context.Context, key string) (bool, error) {

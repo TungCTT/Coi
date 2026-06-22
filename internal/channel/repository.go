@@ -15,6 +15,8 @@ type ChannelRepository interface {
 	FindByUserID(ctx context.Context, userID int) (*model.Channel, error)
 	FindByName(ctx context.Context, name string) ([]model.Channel, error)
 	ExistsByUserID(ctx context.Context, userID int) (bool, error)
+	UpdateAvatar(ctx context.Context, channelID int, avatarURL string, storageKey string) error
+	UpdateBanner(ctx context.Context, channelID int, bannerURL string, storageKey string) error
 }
 
 type channelRepository struct {
@@ -64,4 +66,38 @@ func (r *channelRepository) ExistsByUserID(ctx context.Context, userID int) (boo
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *channelRepository) UpdateAvatar(ctx context.Context, channelID int, avatarURL string, storageKey string) error {
+	db := txmanager.GetTx(ctx, r.db)
+	result := db.WithContext(ctx).Model(&model.Channel{}).
+		Where("id = ?", channelID).
+		Updates(map[string]any{
+			"avatar_url":         avatarURL,
+			"avatar_storage_key": storageKey,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *channelRepository) UpdateBanner(ctx context.Context, channelID int, bannerURL string, storageKey string) error {
+	db := txmanager.GetTx(ctx, r.db)
+	result := db.WithContext(ctx).Model(&model.Channel{}).
+		Where("id = ?", channelID).
+		Updates(map[string]any{
+			"banner_url":         bannerURL,
+			"banner_storage_key": storageKey,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"coi/internal/channel"
 	"coi/internal/model"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/google/uuid"
 )
 
@@ -25,6 +27,10 @@ type VideoService interface {
 	CreateUploadSession(ctx context.Context, userID int, req *model.CreateVideoUploadRequest) (*model.CreateVideoUploadResponse, error)
 	ConfirmUpload(ctx context.Context, userID int, videoID int) (*model.Video, error)
 	HandleUploadCompleted(ctx context.Context, storageKey string) (*model.Video, error)
+	OpenPublicVideo(ctx context.Context, id int, byteRange string) (*model.Video, io.ReadCloser, *ObjectInfo, error)
+	ListPublicVideos(ctx context.Context, query string, limit int, offset int) ([]model.Video, error)
+	ListPublicVideosByChannel(ctx context.Context, channelID int, limit int, offset int) ([]model.Video, error)
+	GetPublicVideo(ctx context.Context, id int) (*model.Video, error)
 	DeleteVideo(ctx context.Context, userID int, videoID int) error
 	ReconcileExpiredUploads(ctx context.Context, now time.Time) error
 }
@@ -125,6 +131,58 @@ func (s *videoService) HandleUploadCompleted(ctx context.Context, storageKey str
 	return s.markUploadedFromStorage(ctx, video)
 }
 
+func (s *videoService) OpenPublicVideo(ctx context.Context, id int, byteRange string) (*model.Video, io.ReadCloser, *ObjectInfo, error) {
+	video, err := s.videoRepo.GetPublicReadyByID(ctx, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	out, err := s.storage.Open(ctx, video.StorageKey, byteRange)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	info := &ObjectInfo{
+		Key:          video.StorageKey,
+		Size:         aws.ToInt64(out.ContentLength),
+		ContentType:  strings.TrimSpace(aws.ToString(out.ContentType)),
+		ETag:         strings.Trim(aws.ToString(out.ETag), "\""),
+		ContentRange: aws.ToString(out.ContentRange),
+	}
+	if info.ContentType == "" {
+		info.ContentType = video.ContentType
+	}
+
+	return video, out.Body, info, nil
+}
+
+func (s *videoService) ListPublicVideos(ctx context.Context, query string, limit int, offset int) ([]model.Video, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.videoRepo.ListPublicReady(ctx, strings.TrimSpace(query), limit, offset)
+}
+
+func (s *videoService) ListPublicVideosByChannel(ctx context.Context, channelID int, limit int, offset int) ([]model.Video, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if _, err := s.channelRepo.FindByID(ctx, channelID); err != nil {
+		return nil, err
+	}
+	return s.videoRepo.ListPublicReadyByChannelID(ctx, channelID, limit, offset)
+}
+
+func (s *videoService) GetPublicVideo(ctx context.Context, id int) (*model.Video, error) {
+	return s.videoRepo.GetPublicReadyByID(ctx, id)
+}
+
 func (s *videoService) DeleteVideo(ctx context.Context, userID int, videoID int) error {
 	video, err := s.videoRepo.GetByID(ctx, videoID)
 	if err != nil {
@@ -164,6 +222,15 @@ func (s *videoService) ReconcileExpiredUploads(ctx context.Context, now time.Tim
 }
 
 func (s *videoService) markUploadedFromStorage(ctx context.Context, video *model.Video) (*model.Video, error) {
+	if video.Status == model.VideoStatusReady {
+		return video, nil
+	}
+	if video.Status == model.VideoStatusUploaded {
+		if err := s.videoRepo.UpdateStatus(ctx, video.ID, model.VideoStatusReady); err != nil {
+			return nil, err
+		}
+		return s.videoRepo.GetByID(ctx, video.ID)
+	}
 	if video.Status != model.VideoStatusUploading {
 		return video, nil
 	}

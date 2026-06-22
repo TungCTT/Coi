@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"coi/config"
 	categoryRoutes "coi/internal/category"
 	channelRoutes "coi/internal/channel"
+	"coi/internal/middleware"
 	"coi/internal/model"
 	userRoutes "coi/internal/user"
 	videoRoutes "coi/internal/video"
@@ -22,6 +24,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Khong the load R2 config: %v", err)
 	}
+	corsCfg := config.LoadCORSConfig()
 
 	db, err := gorm.Open(mysql.Open(dbCfg.MySQLDSN()), &gorm.Config{})
 	if err != nil {
@@ -33,6 +36,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Khong the ket noi R2: %v", err)
 	}
+	if s3Cfg.ConfigureR2CORS {
+		if err := storage.ConfigureR2BucketCORS(context.Background(), r2Client, s3Cfg.R2BucketName, corsCfg.AllowedOrigins); err != nil {
+			log.Printf("Khong the cau hinh R2 bucket CORS, bo qua va tiep tuc chay app: %v", err)
+		}
+	}
 
 	if err := db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Category{}, &model.Video{}); err != nil {
 		log.Fatalf("AutoMigrate that bai: %v", err)
@@ -40,11 +48,12 @@ func main() {
 	log.Println("AutoMigrate thanh cong")
 
 	r := gin.Default()
+	r.Use(middleware.CORSMiddleware(corsCfg.AllowedOrigins))
 
 	v1 := r.Group("/api/v1")
 	{
-		userRoutes.RegisterRoutes(v1, db)
-		channelRoutes.RegisterRoutes(v1, db)
+		userRoutes.RegisterRoutes(v1, db, r2Client, s3Cfg.R2BucketName, s3Cfg.R2PublicBaseURL)
+		channelRoutes.RegisterRoutes(v1, db, r2Client, s3Cfg.R2BucketName, s3Cfg.R2PublicBaseURL)
 		categoryRoutes.RegisterRoutes(v1, db)
 		videoRoutes.RegisterRoutes(v1, db, r2Client, s3Cfg.R2BucketName, s3Cfg.R2PublicBaseURL)
 	}

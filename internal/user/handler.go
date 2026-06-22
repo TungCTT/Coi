@@ -120,3 +120,37 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		"data": user,
 	})
 }
+
+func (h *AuthHandler) CreateMediaUploadSession(c *gin.Context) {
+	var req model.CreateUserMediaUploadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.MustGet("userID").(int)
+	resp, err := h.service.CreateMediaUploadSession(c.Request.Context(), userID, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"data": resp})
+}
+
+func (h *AuthHandler) ConfirmMediaUpload(c *gin.Context) {
+	var req model.ConfirmUserMediaUploadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.MustGet("userID").(int)
+	resp, err := h.service.ConfirmMediaUpload(c.Request.Context(), userID, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": resp})
+}

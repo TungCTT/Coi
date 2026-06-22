@@ -16,7 +16,7 @@ type Video struct {
 	OriginalFileName string          `json:"original_file_name"`
 	FileSize         int64           `json:"file_size"`
 	ContentType      string          `json:"content_type" gorm:"size:100"`
-	ETag             string          `json:"etag" gorm:"size:200"`
+	ETag             string          `json:"etag" gorm:"column:e_tag;size:200"`
 	DurationSeconds  int64           `json:"duration"`
 	Status           VideoStatus     `json:"status" gorm:"type:varchar(30);not null;default:'uploading'"`
 	Visibility       VideoVisibility `json:"visibility" gorm:"type:varchar(30);not null;default:'public'"`
