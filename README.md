@@ -1,6 +1,6 @@
 # COI
 A Video Sharing Web Application  
-**Tech Stack:** Golang, MySQL, Redis, Docker
+**Tech Stack:** Golang, MySQL, Docker
 ## Main feature
 - Supporting user/creator/admin account with RBAC.
 - Video uploading.
